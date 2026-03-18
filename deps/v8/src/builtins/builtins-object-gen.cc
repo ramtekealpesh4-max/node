@@ -326,6 +326,7 @@ ObjectEntriesValuesBuiltinsAssembler::FinalizeValuesOrEntriesJSArray(
   return array;
 }
 
+// https://tc39.es/ecma262/#sec-object.prototype.hasownproperty
 TF_BUILTIN(ObjectPrototypeHasOwnProperty, ObjectBuiltinsAssembler) {
   auto object = Parameter<Object>(Descriptor::kReceiver);
   auto key = Parameter<Object>(Descriptor::kKey);
@@ -395,7 +396,7 @@ TF_BUILTIN(ObjectPrototypeHasOwnProperty, ObjectBuiltinsAssembler) {
   Return(CallRuntime(Runtime::kObjectHasOwnProperty, context, object, key));
 }
 
-// ES #sec-object.assign
+// https://tc39.es/ecma262/#sec-object.assign
 TF_BUILTIN(ObjectAssign, ObjectBuiltinsAssembler) {
   TNode<IntPtrT> argc = ChangeInt32ToIntPtr(
       UncheckedParameter<Int32T>(Descriptor::kJSActualArgumentsCount));
@@ -624,7 +625,7 @@ TF_BUILTIN(ObjectAssign, ObjectBuiltinsAssembler) {
   args.PopAndReturn(to);
 }
 
-// ES #sec-object.keys
+// https://tc39.es/ecma262/#sec-object.keys
 TF_BUILTIN(ObjectKeys, ObjectBuiltinsAssembler) {
   auto object = Parameter<Object>(Descriptor::kObject);
   auto context = Parameter<Context>(Descriptor::kContext);
@@ -666,7 +667,7 @@ TF_BUILTIN(ObjectKeys, ObjectBuiltinsAssembler) {
     TNode<EnumCache> object_enum_cache = LoadObjectField<EnumCache>(
         object_descriptors, DescriptorArray::kEnumCacheOffset);
     auto object_enum_keys = LoadObjectField<FixedArrayBase>(
-        object_enum_cache, EnumCache::kKeysOffset);
+        object_enum_cache, offsetof(EnumCache, keys_));
 
     // Allocate a JSArray and copy the elements from the {object_enum_keys}.
     TNode<JSArray> array;
@@ -744,7 +745,7 @@ TF_BUILTIN(ObjectHasOwn, ObjectBuiltinsAssembler) {
                        new_target, object, key));
 }
 
-// ES #sec-object.getOwnPropertyNames
+// https://tc39.es/ecma262/#sec-object.getOwnPropertyNames
 TF_BUILTIN(ObjectGetOwnPropertyNames, ObjectBuiltinsAssembler) {
   auto object = Parameter<Object>(Descriptor::kObject);
   auto context = Parameter<Context>(Descriptor::kContext);
@@ -796,7 +797,7 @@ TF_BUILTIN(ObjectGetOwnPropertyNames, ObjectBuiltinsAssembler) {
     TNode<EnumCache> object_enum_cache = LoadObjectField<EnumCache>(
         object_descriptors, DescriptorArray::kEnumCacheOffset);
     auto object_enum_keys = LoadObjectField<FixedArrayBase>(
-        object_enum_cache, EnumCache::kKeysOffset);
+        object_enum_cache, offsetof(EnumCache, keys_));
 
     // Allocate a JSArray and copy the elements from the {object_enum_keys}.
     TNode<JSArray> array;
@@ -866,7 +867,7 @@ TF_BUILTIN(ObjectEntries, ObjectEntriesValuesBuiltinsAssembler) {
   GetOwnValuesOrEntries(context, object, CollectType::kEntries);
 }
 
-// ES #sec-object.prototype.isprototypeof
+// https://tc39.es/ecma262/#sec-object.prototype.isprototypeof
 TF_BUILTIN(ObjectPrototypeIsPrototypeOf, ObjectBuiltinsAssembler) {
   auto receiver = Parameter<Object>(Descriptor::kReceiver);
   auto value = Parameter<Object>(Descriptor::kValue);
@@ -1216,7 +1217,7 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   }
 }
 
-// ES #sec-object.create
+// https://tc39.es/ecma262/#sec-object.create
 TF_BUILTIN(ObjectCreate, ObjectBuiltinsAssembler) {
   int const kPrototypeArg = 0;
   int const kPropertiesArg = 1;
@@ -1315,7 +1316,7 @@ TF_BUILTIN(ObjectCreate, ObjectBuiltinsAssembler) {
   }
 }
 
-// ES #sec-object.is
+// https://tc39.es/ecma262/#sec-object.is
 TF_BUILTIN(ObjectIs, ObjectBuiltinsAssembler) {
   const auto left = Parameter<Object>(Descriptor::kLeft);
   const auto right = Parameter<Object>(Descriptor::kRight);
@@ -1408,7 +1409,6 @@ TF_BUILTIN(CreateGeneratorObject, ObjectBuiltinsAssembler) {
   TNode<UnionOf<JSPrototype, Map, TheHole>> maybe_map =
       LoadObjectField<UnionOf<JSPrototype, Map, TheHole>>(
           closure, JSFunction::kPrototypeOrInitialMapOffset);
-  GotoIf(IsTheHole(maybe_map), &runtime);
   GotoIf(DoesntHaveInstanceType(maybe_map, MAP_TYPE), &runtime);
   TNode<Map> map = CAST(maybe_map);
 
@@ -1577,7 +1577,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   TVARIABLE(JSObject, js_descriptor);
 
   TNode<Int32T> flags = LoadAndUntagToWord32ObjectField(
-      desc, PropertyDescriptorObject::kFlagsOffset);
+      desc, offsetof(PropertyDescriptorObject, flags_));
 
   TNode<Int32T> has_flags =
       Word32And(flags, Int32Constant(PropertyDescriptorObject::kHasMask));
@@ -1598,8 +1598,9 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   BIND(&if_accessor_desc);
   {
     js_descriptor = ConstructAccessorDescriptor(
-        context, LoadObjectField(desc, PropertyDescriptorObject::kGetOffset),
-        LoadObjectField(desc, PropertyDescriptorObject::kSetOffset),
+        context,
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, get_)),
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, set_)),
         IsSetWord32<PropertyDescriptorObject::IsEnumerableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsConfigurableBit>(flags));
     Goto(&return_desc);
@@ -1608,7 +1609,8 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   BIND(&if_data_desc);
   {
     js_descriptor = ConstructDataDescriptor(
-        context, LoadObjectField(desc, PropertyDescriptorObject::kValueOffset),
+        context,
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, value_)),
         IsSetWord32<PropertyDescriptorObject::IsWritableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsEnumerableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsConfigurableBit>(flags));
@@ -1629,7 +1631,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
 
     Factory* factory = isolate()->factory();
     TNode<Object> value =
-        LoadObjectField(desc, PropertyDescriptorObject::kValueOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, value_));
     AddToDictionaryIf(IsNotTheHole(value), context, js_desc, properties,
                       factory->value_string(), value, &bailout);
     AddToDictionaryIf(
@@ -1640,11 +1642,11 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
         &bailout);
 
     TNode<Object> get =
-        LoadObjectField(desc, PropertyDescriptorObject::kGetOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, get_));
     AddToDictionaryIf(IsNotTheHole(get), context, js_desc, properties,
                       factory->get_string(), get, &bailout);
     TNode<Object> set =
-        LoadObjectField(desc, PropertyDescriptorObject::kSetOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, set_));
     AddToDictionaryIf(IsNotTheHole(set), context, js_desc, properties,
                       factory->set_string(), set, &bailout);
 

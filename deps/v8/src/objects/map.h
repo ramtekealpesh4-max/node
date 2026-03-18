@@ -84,6 +84,7 @@ enum InstanceType : uint16_t;
   V(PropertyArray)                    \
   V(PropertyCell)                     \
   V(PrototypeInfo)                    \
+  V(PrototypeSharedClosureInfo)       \
   V(RegExpBoilerplateDescription)     \
   V(RegExpDataWrapper)                \
   V(SharedFunctionInfo)               \
@@ -110,6 +111,7 @@ enum InstanceType : uint16_t;
   IF_WASM(V, WasmStruct)              \
   IF_WASM(V, WasmSuspendingObject)    \
   IF_WASM(V, WasmContinuationObject)  \
+  IF_WASM(V, WasmStackObject)         \
   IF_WASM(V, WasmTableObject)         \
   IF_WASM(V, WasmTagObject)           \
   IF_WASM(V, WasmTypeInfo)            \
@@ -249,13 +251,15 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
   // [inobject_properties_start_or_constructor_function_index]:
   // Provides access to the inobject properties start offset in words in case of
   // JSObject maps, or the constructor function index in case of primitive maps.
-  DECL_INT_ACCESSORS(inobject_properties_start_or_constructor_function_index)
+  DECL_UINT8_ACCESSORS(inobject_properties_start_or_constructor_function_index)
 
   // Get/set the in-object property area start offset in words in the object.
-  inline int GetInObjectPropertiesStartInWords() const;
+  inline uint8_t GetInObjectPropertiesStartInWords() const;
+  inline void SetInObjectPropertiesStartInWords(uint8_t value);
   inline void SetInObjectPropertiesStartInWords(int value);
   // Count of properties allocated in the object (JSObject only).
   inline int GetInObjectProperties() const;
+  inline bool IsFieldInObject(int field_index) const;
   // Index of the constructor function in the native context (primitives only),
   // or the special sentinel value to indicate that there is no object wrapper
   // for the primitive (i.e. in case of null or undefined).
@@ -453,6 +457,10 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
   inline bool is_abandoned_prototype_map() const;
   inline bool has_prototype_info() const;
   inline bool TryGetPrototypeInfo(Tagged<PrototypeInfo>* result) const;
+  inline bool TryGetPrototypeSharedClosureInfo(
+      Tagged<PrototypeSharedClosureInfo>* result) const;
+  inline void SetPrototypeSharedClosureInfo(
+      Tagged<PrototypeSharedClosureInfo> closure_infos);
 
   // Whether the instance has been added to the retained map list by
   // Heap::AddRetainedMap.
@@ -506,9 +514,12 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
       raw_transitions, Tagged<UnionOf<Smi, MaybeWeak<Map>, TransitionArray>>)
   // [prototype_info]: Per-prototype metadata. Aliased with transitions
   // (which prototype maps don't have).
-  DECL_GETTER(prototype_info, Tagged<UnionOf<Smi, PrototypeInfo>>)
-  DECL_RELEASE_ACQUIRE_ACCESSORS(prototype_info,
-                                 Tagged<UnionOf<Smi, PrototypeInfo>>)
+  DECL_GETTER(prototype_info,
+              Tagged<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>>)
+
+  DECL_RELEASE_ACQUIRE_ACCESSORS(
+      prototype_info,
+      Tagged<UnionOf<Smi, PrototypeInfo, PrototypeSharedClosureInfo>>)
   // PrototypeInfo is created lazily using this helper (which installs it on
   // the given prototype's map).
   static DirectHandle<PrototypeInfo> GetOrCreatePrototypeInfo(
@@ -600,9 +611,24 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
       DirectHandle<Object> value);
 
   V8_EXPORT_PRIVATE static Handle<Map> Normalize(
+      Isolate* isolate, DirectHandle<Map> map, InstanceType new_instance_type,
+      ElementsKind new_elements_kind, DirectHandle<JSPrototype> new_prototype,
+      PropertyNormalizationMode mode, bool use_cache, const char* reason);
+  V8_EXPORT_PRIVATE static Handle<Map> Normalize(
       Isolate* isolate, DirectHandle<Map> map, ElementsKind new_elements_kind,
       DirectHandle<JSPrototype> new_prototype, PropertyNormalizationMode mode,
-      bool use_cache, const char* reason);
+      bool use_cache, const char* reason) {
+    return Normalize(isolate, map, map->instance_type(), new_elements_kind,
+                     new_prototype, mode, use_cache, reason);
+  }
+  V8_EXPORT_PRIVATE static Handle<Map> Normalize(
+      Isolate* isolate, DirectHandle<Map> map, InstanceType new_instance_type,
+      ElementsKind new_elements_kind, DirectHandle<JSPrototype> new_prototype,
+      PropertyNormalizationMode mode, const char* reason) {
+    const bool kUseCache = true;
+    return Normalize(isolate, map, new_instance_type, new_elements_kind,
+                     new_prototype, mode, kUseCache, reason);
+  }
   V8_EXPORT_PRIVATE static Handle<Map> Normalize(
       Isolate* isolate, DirectHandle<Map> map, ElementsKind new_elements_kind,
       DirectHandle<JSPrototype> new_prototype, PropertyNormalizationMode mode,
@@ -843,6 +869,9 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
   static Handle<Map> CopyAsElementsKind(Isolate* isolate, DirectHandle<Map> map,
                                         ElementsKind kind, TransitionFlag flag);
 
+  V8_EXPORT_PRIVATE static Handle<Map> AsDetachedTypedArray(
+      Isolate* isolate, DirectHandle<Map> map);
+
   static DirectHandle<Map> AsLanguageMode(
       Isolate* isolate, DirectHandle<Map> initial_map,
       DirectHandle<SharedFunctionInfo> shared_info);
@@ -887,8 +916,8 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
   V8_EXPORT_PRIVATE static Handle<Map> Create(Isolate* isolate,
                                               int inobject_properties);
 
-  // Returns the next free property index (only valid for FAST MODE).
-  int NextFreePropertyIndex() const;
+  // Returns the next free property offset (only valid for FAST MODE).
+  FieldStorageLocation NextFreeFieldStorageLocation() const;
 
   // Returns the number of enumerable properties.
   int NumberOfEnumerableProperties() const;
@@ -947,6 +976,13 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
 
 #ifdef VERIFY_HEAP
   void DictionaryMapVerify(Isolate* isolate);
+#endif
+#if defined(DEBUG) || defined(VERIFY_HEAP)
+  V8_EXPORT_PRIVATE void VerifyDescriptorInObjectBits(
+      Isolate* isolate, Tagged<DescriptorArray> descriptors,
+      int number_of_own_descriptors);
+  V8_EXPORT_PRIVATE void VerifyPropertyDetailsInObjectBits(
+      PropertyDetails details);
 #endif
 
   DECL_PRIMITIVE_ACCESSORS(visitor_id, VisitorId)
@@ -1048,7 +1084,8 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
 
   bool EquivalentToForTransition(
       const Tagged<Map> other, ConcurrencyMode cmode,
-      DirectHandle<HeapObject> new_prototype = {}) const;
+      DirectHandle<HeapObject> new_prototype = {},
+      std::optional<InstanceType> new_instance_type = {}) const;
   bool EquivalentToForElementsKindTransition(const Tagged<Map> other,
                                              ConcurrencyMode cmode) const;
   static Handle<Map> RawCopy(Isolate* isolate, DirectHandle<Map> map,
@@ -1070,6 +1107,14 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
   static Handle<Map> CopyAddDescriptor(Isolate* isolate, DirectHandle<Map> map,
                                        Descriptor* descriptor,
                                        TransitionFlag flag);
+
+  template <typename InitMapCb>
+  static Handle<Map> CopyReplaceDescriptors(
+      Isolate* isolate, DirectHandle<Map> map,
+      DirectHandle<DescriptorArray> descriptors, TransitionFlag flag,
+      const InitMapCb& InitMap, MaybeDirectHandle<Name> maybe_name,
+      const char* reason, TransitionKindFlag transition_kind);
+
   static Handle<Map> CopyReplaceDescriptors(
       Isolate* isolate, DirectHandle<Map> map,
       DirectHandle<DescriptorArray> descriptors, TransitionFlag flag,
@@ -1084,6 +1129,7 @@ class Map : public TorqueGeneratedMap<Map, HeapObject> {
                                     PropertyNormalizationMode mode);
 
   void DeprecateTransitionTree(Isolate* isolate);
+  void DeprecateTransitionTreeImpl(Isolate* isolate);
 
   void ReplaceDescriptors(Isolate* isolate,
                           Tagged<DescriptorArray> new_descriptors);
@@ -1129,7 +1175,7 @@ class NormalizedMapCache : public WeakFixedArray {
   friend bool IsNormalizedMapCache(Tagged<HeapObject> obj,
                                    PtrComprCageBase cage_base);
 
-  static const int kEntries = 64;
+  static const uint32_t kEntries = 64;
 
   static inline int GetIndex(Isolate* isolate, Tagged<Map> map,
                              Tagged<HeapObject> prototype);

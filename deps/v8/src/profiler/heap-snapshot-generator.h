@@ -413,8 +413,7 @@ class V8_EXPORT_PRIVATE V8HeapExplorer : public HeapEntriesAllocator {
  public:
   V8HeapExplorer(HeapSnapshot* snapshot,
                  SnapshottingProgressReportingInterface* progress,
-                 v8::HeapProfiler::ObjectNameResolver* resolver,
-                 v8::HeapProfiler::ContextNameResolver* context_resolver);
+                 v8::HeapProfiler::ContextNameResolver* resolver);
   ~V8HeapExplorer() override = default;
   V8HeapExplorer(const V8HeapExplorer&) = delete;
   V8HeapExplorer& operator=(const V8HeapExplorer&) = delete;
@@ -426,6 +425,16 @@ class V8_EXPORT_PRIVATE V8HeapExplorer : public HeapEntriesAllocator {
   uint32_t EstimateObjectsCount();
   void PopulateLineEnds();
   bool IterateAndExtractReferences(HeapSnapshotGenerator* generator);
+
+  struct NativeContextTagInfo {
+    // The tag is an addition provided by the embedder to identify the context.
+    // Typically it's the URL of the iframe or the main thread.
+    const char* tag;
+    // The postfix gives additional internal information about the object, e.g.
+    // that this object is a prototype ("prototype"), or this object is not yet
+    // used but already exists in an internal cache ("internal cache").
+    const char* postfix;
+  };
 
   using TemporaryNativeContextTags =
       std::vector<std::pair<v8::Global<v8::Context>, const char*>>;
@@ -596,11 +605,10 @@ class V8_EXPORT_PRIVATE V8HeapExplorer : public HeapEntriesAllocator {
   HeapObjectsMap* heap_object_map_;
   SnapshottingProgressReportingInterface* progress_;
   HeapSnapshotGenerator* generator_ = nullptr;
-  std::unordered_map<Tagged<NativeContext>, const char*, Object::Hasher>
+  std::unordered_map<Tagged<HeapObject>, NativeContextTagInfo, Object::Hasher>
       native_context_tag_map_;
   UnorderedHeapObjectMap<const char*> strong_gc_subroot_names_;
   std::unordered_set<Tagged<NativeContext>, Object::Hasher> user_roots_;
-  v8::HeapProfiler::ObjectNameResolver* global_object_name_resolver_;
   v8::HeapProfiler::ContextNameResolver* native_context_name_resolver_;
 
   std::vector<bool> visited_fields_;
@@ -650,11 +658,9 @@ class HeapSnapshotGenerator : public SnapshottingProgressReportingInterface {
   // their representations in heap snapshots.
   using SmiEntriesMap = std::unordered_map<int, HeapEntry*>;
 
-  HeapSnapshotGenerator(
-      HeapSnapshot* snapshot, v8::ActivityControl* control,
-      v8::HeapProfiler::ObjectNameResolver* resolver,
-      v8::HeapProfiler::ContextNameResolver* context_name_resolver, Heap* heap,
-      cppgc::EmbedderStackState stack_state);
+  HeapSnapshotGenerator(HeapSnapshot* snapshot, v8::ActivityControl* control,
+                        v8::HeapProfiler::ContextNameResolver* resolver,
+                        Heap* heap, cppgc::EmbedderStackState stack_state);
   HeapSnapshotGenerator(const HeapSnapshotGenerator&) = delete;
   HeapSnapshotGenerator& operator=(const HeapSnapshotGenerator&) = delete;
   bool GenerateSnapshot();

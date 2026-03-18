@@ -1098,7 +1098,9 @@ class MaterializedLiteral : public Expression {
 // Node for capturing a regexp literal.
 class RegExpLiteral final : public MaterializedLiteral {
  public:
-  DirectHandle<String> pattern() const { return pattern_->string(); }
+  DirectHandle<InternalizedString> pattern() const {
+    return pattern_->string();
+  }
   const AstRawString* raw_pattern() const { return pattern_; }
   int flags() const { return flags_; }
 
@@ -1497,7 +1499,7 @@ class VariableProxy final : public Expression {
  public:
   bool IsValidReferenceExpression() const { return !is_new_target(); }
 
-  DirectHandle<String> name() const { return raw_name()->string(); }
+  DirectHandle<InternalizedString> name() const { return raw_name()->string(); }
   const AstRawString* raw_name() const {
     return is_resolved() ? var_->raw_name() : raw_name_;
   }
@@ -1537,6 +1539,13 @@ class VariableProxy final : public Expression {
     bit_field_ = IsNewTargetField::update(bit_field_, true);
   }
 
+  bool is_inside_try_catch() const {
+    return IsInsideTryCatchField::decode(bit_field_);
+  }
+  void set_is_inside_try_catch() {
+    bit_field_ = IsInsideTryCatchField::update(bit_field_, true);
+  }
+
   HoleCheckMode hole_check_mode() const {
     HoleCheckMode mode = HoleCheckModeField::decode(bit_field_);
     DCHECK_IMPLIES(mode == HoleCheckMode::kRequired,
@@ -1551,8 +1560,13 @@ class VariableProxy final : public Expression {
 
   bool IsPrivateName() const { return raw_name()->IsPrivateName(); }
 
+  enum class BindingMode {
+    kMarkUse,
+    kNoMarkUse,
+  };
+
   // Bind this proxy to the variable var.
-  void BindTo(Variable* var);
+  void BindTo(Variable* var, BindingMode mode = BindingMode::kMarkUse);
 
   V8_INLINE VariableProxy* next_unresolved() { return next_unresolved_; }
   V8_INLINE bool is_removed_from_unresolved() const {
@@ -1601,6 +1615,7 @@ class VariableProxy final : public Expression {
                   IsResolvedField::encode(false) |
                   IsRemovedFromUnresolvedField::encode(false) |
                   IsHomeObjectField::encode(false) |
+                  IsInsideTryCatchField::encode(false) |
                   HoleCheckModeField::encode(HoleCheckMode::kElided);
   }
 
@@ -1611,7 +1626,8 @@ class VariableProxy final : public Expression {
   using IsRemovedFromUnresolvedField = IsResolvedField::Next<bool, 1>;
   using IsNewTargetField = IsRemovedFromUnresolvedField::Next<bool, 1>;
   using IsHomeObjectField = IsNewTargetField::Next<bool, 1>;
-  using HoleCheckModeField = IsHomeObjectField::Next<HoleCheckMode, 1>;
+  using IsInsideTryCatchField = IsHomeObjectField::Next<bool, 1>;
+  using HoleCheckModeField = IsInsideTryCatchField::Next<HoleCheckMode, 1>;
 
   union {
     const AstRawString* raw_name_;  // if !is_resolved_
@@ -2171,7 +2187,7 @@ class Assignment : public Expression {
 
   // The assignment was generated as part of block-scoped sloppy-mode
   // function hoisting, see
-  // ES#sec-block-level-function-declarations-web-legacy-compatibility-semantics
+  // https://tc39.es/ecma262/#sec-block-level-function-declarations-web-legacy-compatibility-semantics
   LookupHoistingMode lookup_hoisting_mode() const {
     return static_cast<LookupHoistingMode>(
         LookupHoistingModeField::decode(bit_field_));
@@ -2775,7 +2791,7 @@ class ClassLiteral final : public Expression {
 
 class NativeFunctionLiteral final : public Expression {
  public:
-  DirectHandle<String> name() const { return name_->string(); }
+  DirectHandle<InternalizedString> name() const { return name_->string(); }
   const AstRawString* raw_name() const { return name_; }
   v8::Extension* extension() const { return extension_; }
 
@@ -2875,7 +2891,7 @@ class EmptyParentheses final : public Expression {
 };
 
 // Represents the spec operation `GetTemplateObject(templateLiteral)`
-// (defined at https://tc39.github.io/ecma262/#sec-gettemplateobject).
+// (defined at https://tc39.es/ecma262/#sec-gettemplateobject).
 class GetTemplateObject final : public Expression {
  public:
   const ZonePtrList<const AstRawString>* cooked_strings() const {

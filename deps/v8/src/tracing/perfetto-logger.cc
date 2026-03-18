@@ -7,10 +7,6 @@
 #include <memory>
 
 #include "absl/container/flat_hash_map.h"
-#include "protos/perfetto/common/builtin_clock.pbzero.h"
-#include "protos/perfetto/trace/chrome/v8.pbzero.h"
-#include "protos/perfetto/trace/trace_packet.pbzero.h"
-#include "protos/perfetto/trace/trace_packet_defaults.pbzero.h"
 #include "src/base/logging.h"
 #include "src/base/platform/mutex.h"
 #include "src/base/platform/platform.h"
@@ -30,6 +26,7 @@
 #include "src/objects/tagged.h"
 #include "src/tracing/code-data-source.h"
 #include "src/tracing/code-trace-context.h"
+#include "src/tracing/perfetto-sdk.h"
 #include "src/tracing/perfetto-utils.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -396,8 +393,8 @@ void PerfettoLogger::GetterCallbackEvent(DirectHandle<Name> name,
 void PerfettoLogger::SetterCallbackEvent(DirectHandle<Name> name,
                                          Address entry_point) {}
 void PerfettoLogger::RegExpCodeCreateEvent(
-    DirectHandle<AbstractCode> abstract_code, DirectHandle<String> pattern,
-    RegExpFlags flags) {
+    DirectHandle<AbstractCode> abstract_code,
+    DirectHandle<String> escaped_source, RegExpFlags flags) {
   DisallowGarbageCollection no_gc;
   DCHECK(IsCode(*abstract_code));
   Tagged<Code> code = abstract_code->GetCode();
@@ -410,8 +407,9 @@ void PerfettoLogger::RegExpCodeCreateEvent(
         auto* code_proto = ctx.set_v8_reg_exp_code();
         code_proto->set_v8_isolate_iid(ctx.InternIsolate(isolate_));
 
-        if (!pattern.is_null()) {
-          PerfettoV8String(*pattern).WriteToProto(*code_proto->set_pattern());
+        if (!escaped_source.is_null()) {
+          PerfettoV8String(*escaped_source)
+              .WriteToProto(*code_proto->set_pattern());
         }
         code_proto->set_instruction_start(code->instruction_start());
         code_proto->set_instruction_size_bytes(code->instruction_size());

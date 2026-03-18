@@ -77,7 +77,7 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   int ContextHeaderLength() const;
 
   // Returns true if the respective contexts have a context extension slot.
-  bool HasContextExtensionSlot() const;
+  V8_EXPORT_PRIVATE bool HasContextExtensionSlot() const;
 
   // Returns true if there is a context with created context extension
   // (meaningful only for contexts that call sloppy eval, see
@@ -216,6 +216,8 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   // function expressions, only), otherwise returns a value < 0. The name
   // must be an internalized string.
   int FunctionContextSlotIndex(Tagged<String> name) const;
+  // Same as above but works without knowing the name.
+  int FunctionContextSlotIndex() const;
 
   // Lookup support for serialized scope info.  Returns the receiver context
   // slot index if scope has a "this" binding, and the binding is
@@ -267,7 +269,8 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
 
   template <typename IsolateT>
   static Handle<ScopeInfo> Create(IsolateT* isolate, Zone* zone, Scope* scope,
-                                  MaybeDirectHandle<ScopeInfo> outer_scope);
+                                  MaybeDirectHandle<ScopeInfo> outer_scope,
+                                  FunctionKind closure_function_kind);
   V8_EXPORT_PRIVATE static DirectHandle<ScopeInfo> CreateForWithScope(
       Isolate* isolate, MaybeDirectHandle<ScopeInfo> outer_scope);
   V8_EXPORT_PRIVATE static DirectHandle<ScopeInfo> CreateForEmptyFunction(
@@ -322,6 +325,7 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   int ModuleVariableCountIndex() const;
   int ModuleVariablesIndex() const;
   int DependentCodeIndex() const;
+  int UnusedParameterBitsIndex() const;
 
   // Raw access by slot index. These functions rely on the fact that everything
   // in ScopeInfo is tagged. Each slot is tagged-pointer sized. Slot 0 is

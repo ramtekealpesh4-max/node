@@ -10,6 +10,7 @@
 #include "src/heap/parked-scope-inl.h"
 #include "src/objects/bytecode-array.h"
 #include "src/objects/fixed-array.h"
+#include "test/common/noop-bytecode-verifier.h"
 #include "test/unittests/heap/heap-utils.h"
 #include "test/unittests/test-utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -161,8 +162,7 @@ class SharedLargeOldSpaceAllocationThread final : public ParkingThread {
                 i_client_isolate->factory()->NewFixedArray(
                     kMaxRegularHeapObjectSize / kTaggedSize,
                     AllocationType::kSharedOld);
-            CHECK(MemoryChunkMetadata::FromHeapObject(i_client_isolate,
-                                                      *fixed_array)
+            CHECK(BasePage::FromHeapObject(i_client_isolate, *fixed_array)
                       ->is_large());
           }
 
@@ -211,8 +211,7 @@ class SharedTrustedLargeObjectSpaceAllocationThread final
             DirectHandle<TrustedByteArray> fixed_array =
                 i_client_isolate->factory()->NewTrustedByteArray(
                     kMaxRegularHeapObjectSize, AllocationType::kSharedTrusted);
-            CHECK(MemoryChunkMetadata::FromHeapObject(i_client_isolate,
-                                                      *fixed_array)
+            CHECK(BasePage::FromHeapObject(i_client_isolate, *fixed_array)
                       ->is_large());
           }
 
@@ -268,6 +267,10 @@ TEST_F(SharedHeapTest, TrustedToSharedTrustedPointer) {
   Handle<BytecodeArray> bc = factory->NewBytecodeArray(
       kRawBytesSize, kRawBytes, kFrameSize, kParameterCount, kMaxArguments,
       constant_pool, handler_table);
+  // We still need to verify the bytecode, otherwise the bytecode array won't
+  // be published (be sandbox-accessible), causing the GC to be surprised. We
+  // use a no-op verifier here since this test uses invalid bytecode.
+  NoOpBytecodeVerifier::Verify(i_isolate(), bc);
   CHECK_EQ(MemoryChunk::FromHeapObject(*bc)->Metadata()->owner()->identity(),
            TRUSTED_SPACE);
 
@@ -323,7 +326,7 @@ class TrustedToSharedTrustedPointerOnClient final : public ParkingThread {
 
       Tagged<TrustedByteArray> handler_table = keep_alive_bc->handler_table();
       CHECK(IsTrustedByteArray(handler_table));
-      CHECK_EQ(handler_table->length(), 3);
+      CHECK_EQ(handler_table->length().value(), 3u);
 
       v8::platform::PumpMessageLoop(i::V8::GetCurrentPlatform(),
                                     client_isolate);
@@ -444,12 +447,12 @@ void AllocateInSharedHeap(int iterations = 100) {
     }
 
     for (DirectHandle<FixedArray> array : arrays_in_handles) {
-      CHECK_EQ(array->length(), 100);
+      CHECK_EQ(array->length().value(), 100u);
     }
 
     for (int i = 0; i < kKeptAliveInHeap; i++) {
       Tagged<FixedArray> array = Cast<FixedArray>(arrays_in_heap->get(i));
-      CHECK_EQ(array->length(), 100);
+      CHECK_EQ(array->length().value(), 100u);
     }
   });
 }

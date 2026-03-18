@@ -936,3 +936,194 @@ d8.file.execute('test/mjsunit/value-helper.js');
                  wasm.scalar(...args));
   }
 })();
+
+(function SameConvertChainToOneByte() {
+  print(arguments.callee.name);
+  const simd = [
+    kExprLocalGet, 0,
+    kSimdPrefix, kExprI8x16Splat,
+    kExprLocalTee, 2,
+    kExprLocalGet, 1,
+    kSimdPrefix, kExprI8x16Splat,
+    kExprLocalTee, 3,
+    kSimdPrefix, kExprI8x16Shuffle,
+    0x00, 0x10, 0x01, 0x11, 0x02, 0x12, 0x03, 0x13,
+    0x04, 0x14, 0x05, 0x15, 0x06, 0x16, 0x07, 0x17,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0, 1, 2, 3, 4, 5, 6, 7
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0, 1, 2, 3
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0, 1,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0,
+    kSimdPrefix, kExprI16x8ExtractLaneS, 0,
+  ];
+  const scalar = [
+    kExprLocalGet, 0,
+    kExprI32SExtendI8,
+  ];
+  const builder = new WasmModuleBuilder();
+  builder.addFunction("simd", kSig_i_ii).addLocals(kWasmS128, 4).addBody(simd).exportFunc();
+  builder.addFunction("scalar", kSig_i_ii).addBody(scalar).exportFunc();
+  const wasm = builder.instantiate().exports;
+  for (let i = 0; i < int8_array.length - 2; ++i) {
+    const args = int8_array.slice(i, i + 2);
+    assertEquals(wasm.simd(...args),
+                 wasm.scalar(...args));
+  }
+})();
+
+(function DifferentConvertChainToOneByte() {
+  print(arguments.callee.name);
+  const simd = [
+    kExprLocalGet, 0,
+    kSimdPrefix, kExprI8x16Splat,
+    kExprLocalTee, 2,
+    kExprLocalGet, 1,
+    kSimdPrefix, kExprI8x16Splat,
+    kExprLocalTee, 3,
+    kSimdPrefix, kExprI8x16Shuffle,
+    0x00, 0x10, 0x01, 0x11, 0x02, 0x12, 0x03, 0x13,
+    0x04, 0x14, 0x05, 0x15, 0x06, 0x16, 0x07, 0x17,
+    ...SimdInstr(kExprI16x8SConvertI8x16Low),   // 0, 1, 2, 3, 4, 5, 6, 7
+    ...SimdInstr(kExprI32x4UConvertI16x8Low),   // 0, 1, 2, 3
+    ...SimdInstr(kExprI32x4UConvertI16x8Low),   // 0, 1,
+    ...SimdInstr(kExprI16x8UConvertI8x16Low),   // 0,
+    ...SimdInstr(kExprI64x2SConvertI32x4Low),   // 0,
+    ...SimdInstr(kExprI16x8UConvertI8x16Low),   // 0,
+    kSimdPrefix, kExprI16x8ExtractLaneU, 0,
+  ];
+  const scalar = [
+    kExprLocalGet, 0,
+    ...wasmI32Const(0xFF),
+    kExprI32And,
+  ];
+  const builder = new WasmModuleBuilder();
+  builder.addFunction("simd", kSig_i_ii).addLocals(kWasmS128, 4).addBody(simd).exportFunc();
+  builder.addFunction("scalar", kSig_i_ii).addBody(scalar).exportFunc();
+  const wasm = builder.instantiate().exports;
+  for (let i = 0; i < int8_array.length - 2; ++i) {
+    const args = int8_array.slice(i, i + 2);
+    assertEquals(wasm.simd(...args),
+                 wasm.scalar(...args));
+  }
+})();
+
+(function Crash462259483() {
+  print(arguments.callee.name);
+  const builder = new WasmModuleBuilder();
+  const simd = [
+    kExprLocalGet, 0,
+    kSimdPrefix, kExprI32x4Splat,
+    kExprLocalTee, 1,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 2,
+    kExprLocalGet, 2,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 3,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalSet, 4,
+    kExprLocalGet, 1,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 5,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalSet, 6,
+    kExprLocalGet, 1,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 7,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 8,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalSet, 9,
+    kExprLocalGet, 1,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 10,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 11,
+    kExprLocalGet, 9,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 12,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 13,
+    kExprLocalGet, 6,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 14,
+    kExprLocalGet, 1,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 15,
+    kExprLocalGet, 4,
+    ...SimdInstr(kExprI32x4ExtMulLowI16x8U),
+    kExprLocalTee, 16,
+    kSimdPrefix, kExprI8x16BitMask,
+  ];
+  builder.addFunction("simd", kSig_i_i).addLocals(kWasmS128, 16).addBody(simd).exportFunc();
+  const wasm = builder.instantiate().exports;
+  assertEquals(wasm.simd(0), 0);
+})();
+
+(function ExtMulLowWithTwoExtracts() {
+  print(arguments.callee.name);
+
+  const builder = new WasmModuleBuilder();
+  builder.addMemory(1, 1, false);
+  builder.exportMemoryAs('memory');
+  builder.addFunction('extract', kSig_i_ii).addLocals(kWasmS128, 3)
+      .addBody([
+        kExprLocalGet, 0,
+        kSimdPrefix, kExprS128LoadMem, 0, 0,
+        kExprLocalTee, 2,
+        kExprLocalGet, 1,
+        kSimdPrefix, kExprS128LoadMem, 0, 0,
+        kExprLocalTee, 3,
+        kSimdPrefix, kExprI8x16Shuffle,
+        8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23,
+        kExprLocalGet, 2,
+        kExprLocalGet, 3,
+        kSimdPrefix, kExprI8x16Shuffle,
+        8, 9, 10, 11, 12, 13, 14, 15,
+        0, 1, 2, 3, 4, 5, 6, 7,
+        // ExtMulLow on the two shuffled vectors.
+        ...SimdInstr(kExprI16x8ExtMulLowI8x16S),
+        kExprLocalTee, 4,
+        // Two lane-0 extracts of the ExtMulLow result.
+        kSimdPrefix, kExprI16x8ExtractLaneS, 0,
+        kExprLocalGet, 4,
+        kSimdPrefix, kExprI16x8ExtractLaneS, 0,
+        kExprI32Add,
+      ])
+      .exportFunc();
+
+  builder.addFunction('scalar', kSig_i_ii).addLocals(kWasmI32, 1)
+      .addBody([
+        kExprLocalGet, 0,
+        kExprI32LoadMem8S, 0, 8,
+        kExprLocalTee, 2,
+        kExprLocalGet, 2,
+        kExprI32Mul,
+        kExprI32Const, 2,
+        kExprI32Mul,
+      ])
+      .exportFunc();
+
+  const wasm = builder.instantiate().exports;
+  const mem = new Uint8Array(wasm.memory.buffer);
+  const base0 = 0;
+  const base1 = 32;
+  for (let i = 0; i < 64; ++i) {
+    mem[i] = int8_array[i % int8_array.length];
+  }
+
+  assertEquals(wasm.scalar(base0, base1), wasm.extract(base0, base1));
+})();

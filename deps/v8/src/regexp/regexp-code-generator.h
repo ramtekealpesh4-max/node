@@ -39,7 +39,8 @@ class RegExpCodeGenerator final {
     DirectHandle<Code> code_;
   };
 
-  V8_NODISCARD Result Assemble(DirectHandle<String> source, RegExpFlags flags);
+  V8_NODISCARD Result Assemble(DirectHandle<RegExpData> re_data,
+                               RegExpFlags flags);
 
  private:
   // Returns the value for |operand_id| of the current bytecode in the format
@@ -72,6 +73,10 @@ class RegExpCodeGenerator final {
   // BitVector indicating if a specific offset is a valid jump target.
   // Labels are allocated for all offsets that are jump targets.
   BitVector jump_targets_;
+  // BitVector indicating if a specific offset is an indirect jump target.
+  // Indirect Jump Targets are all targets of `PushBacktrack`.
+  // This is required for CFI.
+  BitVector indirect_jump_targets_;
   bool has_unsupported_bytecode_;
 };
 

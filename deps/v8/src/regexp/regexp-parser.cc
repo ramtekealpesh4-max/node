@@ -6,6 +6,7 @@
 
 #include "src/execution/isolate.h"
 #include "src/objects/string-inl.h"
+#include "src/regexp/regexp-ast-printer.h"
 #include "src/regexp/regexp-ast.h"
 #include "src/regexp/regexp-macro-assembler.h"
 #include "src/regexp/regexp.h"
@@ -741,9 +742,6 @@ template <class CharT>
 void RegExpParserImpl<CharT>::Advance() {
   if (has_next()) {
     if (GetCurrentStackPosition() < stack_limit_) {
-      if (v8_flags.correctness_fuzzer_suppressions) {
-        FATAL("Aborting on stack overflow");
-      }
       ReportError(RegExpError::kStackOverflow);
     } else {
       current_ = ReadNext<true>();
@@ -2192,7 +2190,7 @@ bool IsBinaryPropertyOfStrings(UProperty property) {
 }
 
 bool IsUnicodePropertyValueCharacter(char c) {
-  // https://tc39.github.io/proposal-regexp-unicode-property-escapes/
+  // https://tc39.es/proposal-regexp-unicode-property-escapes/
   //
   // Note that using this to validate each parsed char is quite conservative.
   // A possible alternative solution would be to only ensure the parsed
@@ -3076,6 +3074,13 @@ RegExpTree* RegExpParserImpl<CharT>::ParseCharacterClass(
     Advance();
     RegExpClassRanges::ClassRangesFlags character_class_flags;
     if (is_negated) character_class_flags = RegExpClassRanges::NEGATED;
+    if (!ignore_case()) {
+      character_class_flags |= RegExpClassRanges::NO_CASE_FOLDING_NEEDED;
+    }
+    if (sizeof(CharT) == 1 && !is_negated) {
+      // No surrogate pairs.
+      character_class_flags |= RegExpClassRanges::IS_CERTAINLY_ONE_CODE_POINT;
+    }
     return zone()->template New<RegExpClassRanges>(zone(), ranges,
                                                    character_class_flags);
   } else {
@@ -3137,11 +3142,14 @@ bool RegExpParserImpl<CharT>::Parse(RegExpCompileData* result) {
 
   DCHECK_NOT_NULL(tree);
   DCHECK_EQ(error_, RegExpError::kNone);
-  if (v8_flags.trace_regexp_parser) {
+#ifdef V8_ENABLE_REGEXP_DIAGNOSTICS
+  if (V8_UNLIKELY(v8_flags.trace_regexp_parser)) {
     StdoutStream os;
-    tree->Print(os, zone());
+    RegExpAstNodePrinter printer(os, nullptr, zone());
+    printer.Print(tree);
     os << "\n";
   }
+#endif
 
   result->tree = tree;
   const int capture_count = captures_started();

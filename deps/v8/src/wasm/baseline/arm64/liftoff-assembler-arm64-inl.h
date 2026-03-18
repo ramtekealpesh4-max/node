@@ -6,9 +6,10 @@
 #define V8_WASM_BASELINE_ARM64_LIFTOFF_ASSEMBLER_ARM64_INL_H_
 
 #include "src/codegen/arm64/macro-assembler-arm64-inl.h"
+#include "src/codegen/atomic-memory-order.h"
 #include "src/codegen/interface-descriptors-inl.h"
 #include "src/compiler/linkage.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/wasm/baseline/liftoff-assembler.h"
 #include "src/wasm/baseline/parallel-move-inl.h"
 #include "src/wasm/object-access.h"
@@ -494,6 +495,7 @@ Register LiftoffAssembler::LoadOldFramePointer() {
     return fp;
   }
   LiftoffRegister old_fp = GetUnusedRegister(RegClass::kGpReg, {});
+  FreezeCacheState frozen(*this);
   Label done, call_runtime;
   Ldr(old_fp.gp(), MemOperand(fp, TypedFrameConstants::kFrameTypeOffset));
   Cmp(old_fp.gp(),
@@ -600,10 +602,6 @@ void LiftoffAssembler::LoadTaggedPointerFromInstance(Register dst,
   LoadTaggedField(dst, MemOperand{instance, offset});
 }
 
-void LiftoffAssembler::SpillInstanceData(Register instance) {
-  Str(instance, liftoff::GetInstanceDataOperand());
-}
-
 void LiftoffAssembler::ResetOSRTarget() {}
 
 enum class LoadOrStore : bool { kLoad, kStore };
@@ -693,24 +691,10 @@ void LiftoffAssembler::LoadFullPointer(Register dst, Register src_addr,
   Ldr(dst.X(), src_op);
 }
 
-#ifdef V8_ENABLE_SANDBOX
-void LiftoffAssembler::LoadCodeEntrypointViaCodePointer(Register dst,
-                                                        Register src_addr,
-                                                        int32_t offset_imm) {
-  UseScratchRegisterScope temps(this);
-  MemOperand src_op =
-      liftoff::GetMemOp(this, &temps, src_addr, no_reg, offset_imm);
-  MacroAssembler::LoadCodeEntrypointViaCodePointer(dst, src_op,
-                                                   kWasmEntrypointTag);
-}
-#endif
-
-void LiftoffAssembler::StoreTaggedPointer(Register dst_addr,
-                                          Register offset_reg,
-                                          int32_t offset_imm, Register src,
-                                          LiftoffRegList /* pinned */,
-                                          uint32_t* protected_store_pc,
-                                          SkipWriteBarrier skip_write_barrier) {
+void LiftoffAssembler::StoreTaggedPointer(
+    Register dst_addr, Register offset_reg, int32_t offset_imm, Register src,
+    LiftoffRegList /* pinned */, uint32_t* protected_store_pc,
+    compiler::WriteBarrierKind write_barrier) {
   UseScratchRegisterScope temps(this);
   Operand offset_op = offset_reg.is_valid() ? Operand(offset_reg.W(), UXTW)
                                             : Operand(offset_imm);
@@ -731,7 +715,7 @@ void LiftoffAssembler::StoreTaggedPointer(Register dst_addr,
 
   if (v8_flags.disable_write_barriers) return;
 
-  if (skip_write_barrier) {
+  if (write_barrier == compiler::kNoWriteBarrier) {
     if (v8_flags.verify_write_barriers) {
       CallVerifySkippedWriteBarrierStubSaveRegisters(dst_addr, src,
                                                      SaveFPRegsMode::kSave);
@@ -1088,6 +1072,7 @@ inline void AtomicBinop(LiftoffAssembler* lasm, Register dst_addr,
 void LiftoffAssembler::AtomicLoad(LiftoffRegister dst, Register src_addr,
                                   Register offset_reg, uintptr_t offset_imm,
                                   LoadType type, uint32_t* protected_load_pc,
+                                  AtomicMemoryOrder /* memory_order */,
                                   LiftoffRegList /* pinned */,
                                   bool /* i64_offset */,
                                   Endianness /* endianness */) {
@@ -1095,6 +1080,7 @@ void LiftoffAssembler::AtomicLoad(LiftoffRegister dst, Register src_addr,
   Register src_reg = liftoff::CalculateActualAddress(this, temps, src_addr,
                                                      offset_reg, offset_imm);
   if (protected_load_pc) *protected_load_pc = pc_offset();
+  // Ldar is suitable for both acquire and seqcst loads.
   switch (type.value()) {
     case LoadType::kI32Load8U:
     case LoadType::kI64Load8U:
@@ -1147,6 +1133,7 @@ void LiftoffAssembler::AtomicLoadTaggedPointer(Register dst, Register src_addr,
 void LiftoffAssembler::AtomicStore(Register dst_addr, Register offset_reg,
                                    uintptr_t offset_imm, LiftoffRegister src,
                                    StoreType type, uint32_t* protected_store_pc,
+                                   AtomicMemoryOrder /* memory_order */,
                                    LiftoffRegList /* pinned */,
                                    bool /* i64_offset */,
                                    Endianness /* endianness */) {
@@ -1154,6 +1141,7 @@ void LiftoffAssembler::AtomicStore(Register dst_addr, Register offset_reg,
   Register dst_reg = liftoff::CalculateActualAddress(this, temps, dst_addr,
                                                      offset_reg, offset_imm);
   if (protected_store_pc) *protected_store_pc = pc_offset();
+  // Stlr is suitable for both release and seqcst stores.
   switch (type.value()) {
     case StoreType::kI64Store8:
     case StoreType::kI32Store8:
@@ -4335,6 +4323,16 @@ bool LiftoffAssembler::supports_f16_mem_access() {
 
 void LiftoffAssembler::set_trap_on_oob_mem64(Register index, uint64_t max_index,
                                              Label* trap_label) {
+  DCHECK_EQ(base::bits::RoundUpToPowerOfTwo64(max_index), kMaxMemory64Size);
+
+  if (kMaxMemory64Size - max_index <= AllocatePageSize()) {
+    // We have reserved an extra guard page, so that more accesses with small
+    // offset values can rely on the trap handler. As a result, `index` can be
+    // compared directly with `kMaxMemory64Size`, which is a power of 2 and thus
+    // more efficiently representable in the instruction stream.
+    max_index = kMaxMemory64Size;
+  }
+
   Cmp(index, max_index);
   B(trap_label, kUnsignedGreaterThanEqual);
 }

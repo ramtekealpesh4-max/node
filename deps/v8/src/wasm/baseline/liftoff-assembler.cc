@@ -180,6 +180,9 @@ LiftoffAssembler::CacheState LiftoffAssembler::MergeIntoNewState(
   }
 
   uint32_t target_height = num_locals + stack_depth + arity;
+  // Can't copy more values than we have. If this fails, you may have passed
+  // a {stack_depth} that includes locals.
+  DCHECK_LE(target_height, cache_state_.stack_height());
 
   target.stack_state.resize_no_init(target_height);
 
@@ -1218,7 +1221,7 @@ bool CompatibleStackSlotTypes(ValueKind a, ValueKind b) {
   // Since Liftoff doesn't do accurate type tracking (e.g. on loop back edges,
   // ref.as_non_null/br_on_cast results), we only care that pointer types stay
   // amongst pointer types. It's fine if ref/ref null overwrite each other.
-  return a == b || (is_object_reference(a) && is_object_reference(b));
+  return a == b || (is_reference(a) && is_reference(b));
 }
 #endif
 

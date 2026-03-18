@@ -55,7 +55,7 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
   DirectHandle<TrustedByteArray> ToSourcePositionTable(IsolateT* isolate);
 
 #ifdef DEBUG
-  int CheckBytecodeMatches(Tagged<BytecodeArray> bytecode);
+  int CheckBytecodeMatches(Handle<BytecodeArray> bytecode);
 #endif
 
   // Get the number of parameters expected by function.
@@ -113,10 +113,8 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
 
   // Load the object at |variable| at |depth| in the context chain starting
   // with |context| into the accumulator.
-  enum ContextSlotMutability { kImmutableSlot, kMutableSlot };
   BytecodeArrayBuilder& LoadContextSlot(Register context, Variable* variable,
-                                        int depth,
-                                        ContextSlotMutability immutable);
+                                        int depth);
 
   // Stores the object in the accumulator into |variable| at |depth| in the
   // context chain starting with |context|.
@@ -154,6 +152,13 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
                                                     Register enum_index,
                                                     Register cache_type,
                                                     int feedback_slot);
+
+  BytecodeArrayBuilder& GetPrivateField(Register context, int slot_index,
+                                        int depth, Register object,
+                                        int feedback_slot);
+  BytecodeArrayBuilder& SetPrivateField(Register context, int slot_index,
+                                        int depth, Register object,
+                                        int feedback_slot);
 
   // Named load property of the @@iterator symbol.
   BytecodeArrayBuilder& LoadIteratorProperty(Register object,
@@ -500,7 +505,7 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
   BytecodeArrayBuilder& ForInStep(Register index);
 
   BytecodeArrayBuilder& ForOfNext(Register object, Register next,
-                                  RegisterList value_done);
+                                  RegisterList value_done, int call_slot);
 
   // Generators.
   BytecodeArrayBuilder& SuspendGenerator(Register generator,
@@ -518,6 +523,7 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
   // Allocates a new jump table of given |size| and |case_value_base| in the
   // constant pool.
   BytecodeJumpTable* AllocateJumpTable(int size, int case_value_base);
+  void TrimJumpTable(BytecodeJumpTable* jump_table, int size);
 
   BytecodeRegisterOptimizer* GetRegisterOptimizer() {
     return register_optimizer_;
@@ -600,6 +606,10 @@ class V8_EXPORT_PRIVATE BytecodeArrayBuilder final {
   void OutputMovRaw(Register src, Register dest);
 
   void EmitFunctionStartSourcePosition(int position);
+
+  size_t current_bytecode_size() const {
+    return bytecode_array_writer_.current_bytecode_size();
+  }
 
   // Accessors
   BytecodeRegisterAllocator* register_allocator() {

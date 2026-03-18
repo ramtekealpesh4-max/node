@@ -349,6 +349,7 @@ MaybeDirectHandle<String> RegExpEscapeImpl(Isolate* isolate,
 }
 }  // namespace
 
+// https://tc39.es/ecma262/#sec-regexp.escape
 BUILTIN(RegExpEscape) {
   HandleScope scope(isolate);
   Handle<Object> value = args.atOrUndefined(isolate, 1);
@@ -370,7 +371,7 @@ BUILTIN(RegExpEscape) {
   // A copy of the input characters is needed because RegExpEscapeImpl builds up
   // the escaped string using IncrementalStringBuilder, which may allocate.
   str = String::Flatten(isolate, str);
-  if (str->IsOneByteRepresentation()) {
+  if (String::IsOneByteRepresentationUnderneath(*str)) {
     base::OwnedVector<const uint8_t> copy;
     {
       DisallowGarbageCollection no_gc;

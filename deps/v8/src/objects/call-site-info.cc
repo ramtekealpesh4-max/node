@@ -368,8 +368,7 @@ Tagged<PrimitiveHeapObject> InferMethodNameFromFastObject(
     if (details.IsDontEnum()) continue;
     Tagged<Object> value;
     if (details.location() == PropertyLocation::kField) {
-      auto field_index = FieldIndex::ForPropertyIndex(
-          map, details.field_index(), details.representation());
+      auto field_index = FieldIndex::ForDetails(map, details);
       if (field_index.is_double()) continue;
       value = receiver->RawFastPropertyAt(isolate, field_index);
     } else {
@@ -467,7 +466,7 @@ DirectHandle<Object> CallSiteInfo::GetMethodName(
   DirectHandle<JSFunction> function(Cast<JSFunction>(info->function()),
                                     isolate);
   // Class members initializer function is not a method.
-  if (IsClassMembersInitializerFunction(function->shared()->kind())) {
+  if (IsClassInitializerFunction(function->shared()->kind())) {
     return isolate->factory()->null_value();
   }
 
@@ -803,8 +802,12 @@ void SerializeJSStackFrame(Isolate* isolate, DirectHandle<CallSiteInfo> frame,
     builder->AppendCStringLiteral("async ");
     if (frame->IsPromiseAll() || frame->IsPromiseAny() ||
         frame->IsPromiseAllSettled()) {
-      builder->AppendCStringLiteral("Promise.");
-      builder->AppendString(Cast<String>(function_name));
+      if (IsNonEmptyString(function_name)) {
+        builder->AppendCStringLiteral("Promise.");
+        builder->AppendString(Cast<String>(function_name));
+      } else {
+        builder->AppendCStringLiteral("<anonymous>");
+      }
       builder->AppendCStringLiteral(" (index ");
       builder->AppendInt(CallSiteInfo::GetSourcePosition(frame));
       builder->AppendCharacter(')');

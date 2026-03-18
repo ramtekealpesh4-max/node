@@ -219,6 +219,10 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // constant pool is not blocked.
   void Reset();
 
+  // Distance between the address of the near call instruction and the return
+  // address pushed on the stack.
+  static const int kCallTargetAddressOffset = 4;
+
   // GetCode emits any pending (non-emitted) code and fills the descriptor desc.
   static constexpr int kNoHandlerTable = 0;
   static constexpr SafepointTableBuilderBase* kNoSafepointTable = nullptr;
@@ -2762,6 +2766,10 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Three-way Exclusive-OR.
   void eor3(const VRegister& vd, const VRegister& vn, const VRegister& vm,
             const VRegister& va);
+
+  // 64-bit exclusive-OR and rotate.
+  void xar(const VRegister& vd, const VRegister& vn, const VRegister& vm,
+           unsigned imm);
 
   // Copy a string into the instruction stream, including the terminating
   // nullptr character. The instruction pointer (pc_) is then aligned correctly

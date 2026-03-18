@@ -10,6 +10,7 @@
 #endif  // !V8_ENABLE_WEBASSEMBLY
 
 #include "src/compiler/graph-assembler.h"
+#include "src/sandbox/indirect-pointer-tag.h"
 #include "src/wasm/wasm-code-manager.h"
 
 namespace v8 {
@@ -177,14 +178,14 @@ class WasmGraphAssembler : public GraphAssembler {
                                            Node* isolate_root);
 
   Node* LoadImmutableTrustedPointerFromObject(Node* object, int offset,
-                                              IndirectPointerTag tag);
+                                              IndirectPointerTagRange tag);
   Node* LoadTrustedPointerFromObject(Node* object, int offset,
-                                     IndirectPointerTag tag);
+                                     IndirectPointerTagRange tag);
   // Returns the load node (where the source position for the trap needs to be
   // set by the caller) and the result.
   std::pair<Node*, Node*> LoadTrustedPointerFromObjectTrapOnNull(
-      Node* object, int offset, IndirectPointerTag tag);
-  Node* BuildDecodeTrustedPointer(Node* handle, IndirectPointerTag tag);
+      Node* object, int offset, IndirectPointerTagRange tag);
+  Node* BuildDecodeTrustedPointer(Node* handle, IndirectPointerTagRange tag);
 
   Node* IsSmi(Node* object);
 
@@ -253,8 +254,6 @@ class WasmGraphAssembler : public GraphAssembler {
   Node* LoadContextNoCellFromJSFunction(Node* js_function);
 
   Node* LoadFunctionDataFromJSFunction(Node* js_function);
-
-  Node* LoadExportedFunctionIndexAsSmi(Node* exported_function_data);
 
   Node* LoadExportedFunctionInstanceData(Node* exported_function_data);
 

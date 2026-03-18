@@ -7,9 +7,12 @@
 
 #include "src/base/macros.h"
 #include "src/baseline/baseline-assembler.h"
+#include "src/codegen/assembler.h"
+#include "src/codegen/x64/assembler-x64.h"
 #include "src/codegen/x64/register-x64.h"
 #include "src/objects/feedback-vector.h"
 #include "src/objects/literal-objects-inl.h"
+#include "src/roots/static-roots.h"
 
 namespace v8 {
 namespace internal {
@@ -199,6 +202,38 @@ void BaselineAssembler::JumpIfTagged(Condition cc, MemOperand operand,
   __ cmp_tagged(operand, value);
   __ j(cc, target, distance);
 }
+
+#ifdef V8_STATIC_ROOTS
+void BaselineAssembler::JumpIfStaticRootToBoolean(
+    Register value, Label* true_target, Label::Distance true_distance,
+    Label* false_target, Label::Distance false_distance) {
+  ASM_CODE_COMMENT(masm_);
+  static_assert(StaticReadOnlyRoot::kFirstAllocatedRoot ==
+                StaticReadOnlyRoot::kUndefinedValue);
+  static_assert(StaticReadOnlyRoot::kUndefinedValue + sizeof(Undefined) ==
+                StaticReadOnlyRoot::kNullValue);
+  static_assert(StaticReadOnlyRoot::kNullValue + sizeof(Null) ==
+                StaticReadOnlyRoot::kempty_string);
+  static_assert(StaticReadOnlyRoot::kempty_string +
+                    SeqOneByteString::SizeFor(0) ==
+                StaticReadOnlyRoot::kFalseValue);
+  static_assert(StaticReadOnlyRoot::kFalseValue + sizeof(False) ==
+                StaticReadOnlyRoot::kTrueValue);
+
+  // Smi zero is falsey.
+  __ Cmp(value, Smi::zero());
+  __ j(kEqual, false_target, false_distance);
+  // Other Smis are true.
+  __ JumpIfSmi(value, true_target, true_distance);
+  // The falsey static roots are at the start of the cage, just before the true
+  // value.
+  __ cmp_tagged(value, Immediate(StaticReadOnlyRoot::kTrueValue));
+  __ j(kUnsignedLessThan, false_target, false_distance);
+  __ j(kEqual, true_target, true_distance);
+  // Fallthrough for more complex cases.
+}
+#endif
+
 void BaselineAssembler::JumpIfByte(Condition cc, Register value, int32_t byte,
                                    Label* target, Label::Distance distance) {
   __ cmpb(value, Immediate(byte));
@@ -425,14 +460,14 @@ void BaselineAssembler::AddToInterruptBudgetAndJumpIfNotExceeded(
 
 void BaselineAssembler::LdaContextSlotNoCell(Register context, uint32_t index,
                                              uint32_t depth,
-                                             CompressionMode compression_mode) {
+                                             CompressionMode compression_mode,
+                                             Register output) {
   // [context] is coming from interpreter frame so it is already decompressed
   // when pointer compression is enabled. In order to make use of complex
   // addressing mode, any intermediate context pointer is loaded in compressed
   // form.
   if (depth == 0) {
-    LoadTaggedField(kInterpreterAccumulatorRegister, context,
-                    Context::OffsetOfElementAt(index));
+    LoadTaggedField(output, context, Context::OffsetOfElementAt(index));
   } else {
     TaggedRegister tagged(context);
     LoadTaggedField(tagged, context, Context::kPreviousOffset);
@@ -440,8 +475,8 @@ void BaselineAssembler::LdaContextSlotNoCell(Register context, uint32_t index,
     for (; depth > 0; --depth) {
       LoadTaggedField(tagged, tagged, Context::kPreviousOffset);
     }
-    LoadTaggedField(kInterpreterAccumulatorRegister, tagged,
-                    Context::OffsetOfElementAt(index));
+    LoadTaggedField(output, tagged, Context::OffsetOfElementAt(index));
+
     if (COMPRESS_POINTERS_BOOL &&
         compression_mode == CompressionMode::kForceDecompression) {
       __ addq(tagged.reg(), kPtrComprCageBaseRegister);

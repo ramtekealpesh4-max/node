@@ -35,9 +35,9 @@ class JSSloppyArgumentsObject
     : public TorqueGeneratedJSSloppyArgumentsObject<JSSloppyArgumentsObject,
                                                     JSArgumentsObject> {
  public:
-  // Indices of in-object properties.
-  static const int kLengthIndex = 0;
-  static const int kCalleeIndex = kLengthIndex + 1;
+  // Offsets of in-object properties.
+  static const int kLengthOffset = kHeaderSize;
+  static const int kCalleeOffset = kLengthOffset + kTaggedSize;
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSSloppyArgumentsObject);
@@ -49,9 +49,8 @@ class JSStrictArgumentsObject
     : public TorqueGeneratedJSStrictArgumentsObject<JSStrictArgumentsObject,
                                                     JSArgumentsObject> {
  public:
-  // Indices of in-object properties.
-  static const int kLengthIndex = 0;
-  static_assert(kLengthIndex == JSSloppyArgumentsObject::kLengthIndex);
+  // Offsets of in-object properties.
+  static const int kLengthOffset = kHeaderSize;
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSStrictArgumentsObject);
@@ -151,10 +150,12 @@ class SloppyArgumentsElements
                             WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
 
   // Returns: Smi|TheHole.
-  inline Tagged<UnionOf<Smi, Hole>> mapped_entries(int index,
+  inline Tagged<UnionOf<Smi, Hole>> mapped_entries(uint32_t index,
                                                    RelaxedLoadTag) const;
-  inline void set_mapped_entries(int index, Tagged<UnionOf<Smi, Hole>> value);
-  inline void set_mapped_entries(int index, Tagged<UnionOf<Smi, Hole>> value,
+  inline void set_mapped_entries(uint32_t index,
+                                 Tagged<UnionOf<Smi, Hole>> value);
+  inline void set_mapped_entries(uint32_t index,
+                                 Tagged<UnionOf<Smi, Hole>> value,
                                  RelaxedStoreTag);
 
   DECL_PRINTER(SloppyArgumentsElements)

@@ -150,8 +150,7 @@ TNode<JSRegExpResult> RegExpBuiltinsAssembler::AllocateRegExpResult(
 TNode<Object> RegExpBuiltinsAssembler::FastLoadLastIndexBeforeSmiCheck(
     TNode<JSRegExp> regexp) {
   // Load the in-object field.
-  static const int field_offset =
-      JSRegExp::kHeaderSize + JSRegExp::kLastIndexFieldIndex * kTaggedSize;
+  static const int field_offset = JSRegExp::kLastIndexOffset;
   return LoadObjectField(regexp, field_offset);
 }
 
@@ -165,8 +164,7 @@ TNode<JSAny> RegExpBuiltinsAssembler::SlowLoadLastIndex(TNode<Context> context,
 void RegExpBuiltinsAssembler::FastStoreLastIndex(TNode<JSRegExp> regexp,
                                                  TNode<Smi> value) {
   // Store the in-object field.
-  static const int field_offset =
-      JSRegExp::kHeaderSize + JSRegExp::kLastIndexFieldIndex * kTaggedSize;
+  static const int field_offset = JSRegExp::kLastIndexOffset;
   StoreObjectField(regexp, field_offset, value);
 }
 
@@ -851,10 +849,8 @@ TNode<UintPtrT> RegExpBuiltinsAssembler::RegExpExecInternal(
   {
 // A stack overflow was detected in RegExp code.
 #ifdef DEBUG
-    TNode<ExternalReference> exception_address =
-        ExternalConstant(ExternalReference::Create(
-            IsolateAddressId::kExceptionAddress, isolate()));
-    TNode<Object> exception = LoadFullTagged(exception_address);
+    TNode<Object> exception =
+        LoadFullTagged(IsolateField(IsolateFieldId::kException));
     CSA_DCHECK(this, IsTheHole(exception));
 #endif  // DEBUG
     CallRuntime(Runtime::kThrowStackOverflow, context);
@@ -1044,7 +1040,8 @@ void RegExpBuiltinsAssembler::BranchIfRegExpResult(const TNode<Context> context,
                                                    Label* if_isunmodified,
                                                    Label* if_ismodified) {
   // Could be a Smi.
-  const TNode<Map> map = LoadReceiverMap(object);
+  GotoIf(TaggedIsSmi(object), if_ismodified);
+  const TNode<Map> map = LoadMap(CAST(object));
 
   const TNode<NativeContext> native_context = LoadNativeContext(context);
   const TNode<Object> initial_regexp_result_map = LoadContextElementNoCell(
@@ -1128,7 +1125,7 @@ TF_BUILTIN(RegExpExecAtom, RegExpBuiltinsAssembler) {
     CSA_DCHECK(this, UintPtrLessThan(SmiUntag(match_from),
                                      LoadStringLengthAsWord(subject_string)));
 
-    const int kNumRegisters = 2;
+    const uint32_t kNumRegisters = 2;
     static_assert(kNumRegisters <= RegExpMatchInfo::kMinCapacity);
 
     const TNode<Smi> match_to =
@@ -1136,7 +1133,7 @@ TF_BUILTIN(RegExpExecAtom, RegExpBuiltinsAssembler) {
 
     StoreObjectField(match_info,
                      offsetof(RegExpMatchInfo, number_of_capture_registers_),
-                     SmiConstant(kNumRegisters));
+                     SmiConstant(Smi::FromUInt(kNumRegisters)));
     StoreObjectField(match_info, offsetof(RegExpMatchInfo, last_subject_),
                      subject_string);
     StoreObjectField(match_info, offsetof(RegExpMatchInfo, last_input_),
@@ -1288,7 +1285,7 @@ TNode<String> RegExpBuiltinsAssembler::FlagsGetter(TNode<Context> context,
   }
 }
 
-// ES#sec-regexpinitialize
+// https://tc39.es/ecma262/#sec-regexpinitialize
 // Runtime Semantics: RegExpInitialize ( obj, pattern, flags )
 TNode<Object> RegExpBuiltinsAssembler::RegExpInitialize(
     const TNode<Context> context, const TNode<JSRegExp> regexp,
@@ -1309,7 +1306,7 @@ TNode<Object> RegExpBuiltinsAssembler::RegExpInitialize(
                      pattern, flags);
 }
 
-// ES#sec-regexp-pattern-flags
+// https://tc39.es/ecma262/#sec-regexp-pattern-flags
 // RegExp ( pattern, flags )
 TF_BUILTIN(RegExpConstructor, RegExpBuiltinsAssembler) {
   auto pattern = Parameter<JSAny>(Descriptor::kPattern);
@@ -1358,8 +1355,10 @@ TF_BUILTIN(RegExpConstructor, RegExpBuiltinsAssembler) {
 
     BIND(&if_patternisfastregexp);
     {
+      TNode<RegExpData> data = CAST(LoadTrustedPointerFromObject(
+          CAST(pattern), JSRegExp::kDataOffset, kRegExpDataIndirectPointerTag));
       TNode<JSAny> source =
-          CAST(LoadObjectField(CAST(pattern), JSRegExp::kSourceOffset));
+          LoadObjectField<String>(data, RegExpData::kOriginalSourceOffset);
       var_pattern = source;
 
       {
@@ -1434,7 +1433,7 @@ TF_BUILTIN(RegExpConstructor, RegExpBuiltinsAssembler) {
   Return(result);
 }
 
-// ES#sec-regexp.prototype.compile
+// https://tc39.es/ecma262/#sec-regexp.prototype.compile
 // RegExp.prototype.compile ( pattern, flags )
 TF_BUILTIN(RegExpPrototypeCompile, RegExpBuiltinsAssembler) {
   auto maybe_receiver = Parameter<Object>(Descriptor::kReceiver);
@@ -1475,8 +1474,10 @@ TF_BUILTIN(RegExpPrototypeCompile, RegExpBuiltinsAssembler) {
 
     const TNode<JSRegExp> pattern = CAST(maybe_pattern);
     const TNode<String> new_flags = FlagsGetter(context, pattern, true);
+    const TNode<RegExpData> data = CAST(LoadTrustedPointerFromObject(
+        pattern, JSRegExp::kDataOffset, kRegExpDataIndirectPointerTag));
     const TNode<Object> new_pattern =
-        LoadObjectField(pattern, JSRegExp::kSourceOffset);
+        LoadObjectField<String>(data, RegExpData::kOriginalSourceOffset);
 
     var_flags = new_flags;
     var_pattern = new_pattern;
@@ -1568,7 +1569,7 @@ TNode<Number> RegExpBuiltinsAssembler::AdvanceStringIndex(
   return var_result.value();
 }
 
-// ES#sec-createregexpstringiterator
+// https://tc39.es/ecma262/#sec-createregexpstringiterator
 // CreateRegExpStringIterator ( R, S, global, fullUnicode )
 TNode<JSAny> RegExpMatchAllAssembler::CreateRegExpStringIterator(
     TNode<NativeContext> native_context, TNode<JSAny> regexp,
